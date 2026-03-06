@@ -4,10 +4,19 @@ services:
   app:
     build: .
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       - GLM_API_KEY=${GLM_API_KEY}
       - MERCADO_PAGO_KEY=${MERCADO_PAGO_KEY}
     volumes:
       - ./app:/app/app
+      - ./static:/app/static
+    restart: unless-stopped
+
+  landing:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./landing:/usr/share/nginx/html:ro
     restart: unless-stopped
