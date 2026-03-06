@@ -24,6 +24,10 @@ class PaymentRequest(BaseModel):
     currency: str = Field(default="USD")
     contract_type: str = Field(default="general")
     description: Optional[str] = None
+    payment_provider: str = Field(
+        default="mercado_pago",
+        description="Payment provider: 'mercado_pago' or 'paypal'",
+    )
 
 
 class PaymentStatus(BaseModel):

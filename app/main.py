@@ -69,6 +69,7 @@ async def initiate_payment(request: PaymentRequest):
             currency=request.currency,
             contract_type=request.contract_type,
             description=request.description or "",
+            payment_provider=request.payment_provider,
         )
         return payment
     except Exception as e:
@@ -81,6 +82,7 @@ async def api_status():
     return {
         "glm_configured": bool(os.getenv("GLM_API_KEY") or os.getenv("ZAI_API_KEY")),
         "mercado_pago_configured": bool(os.getenv("MERCADO_PAGO_ACCESS_TOKEN")),
+        "paypal_configured": bool(os.getenv("PAYPAL_CLIENT_ID") and os.getenv("PAYPAL_SECRET")),
     }
 
 

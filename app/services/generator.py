@@ -4,6 +4,7 @@ Uses GLM AI to generate professional contracts
 Integrates with Mercado Pago for payments
 """
 import os
+import base64
 import httpx
 import uuid
 from typing import Optional
@@ -17,6 +18,11 @@ class ContractGenerator:
         self.api_key = os.getenv("GLM_API_KEY") or os.getenv("ZAI_API_KEY")
         self.api_url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
         self.mercado_pago_token = os.getenv("MERCADO_PAGO_ACCESS_TOKEN")
+        self.paypal_client_id = os.getenv("PAYPAL_CLIENT_ID")
+        self.paypal_secret = os.getenv("PAYPAL_SECRET")
+        self.paypal_base_url = os.getenv(
+            "PAYPAL_API_URL", "https://api-m.sandbox.paypal.com"
+        )
 
     async def generate(
         self,
@@ -152,6 +158,23 @@ Fecha: _______________          Fecha: _______________
 """
 
     async def create_payment(
+        self,
+        amount: float,
+        currency: str,
+        contract_type: str,
+        description: str = "",
+        payment_provider: str = "mercado_pago",
+    ) -> PaymentStatus:
+        """Create a payment via Mercado Pago or PayPal"""
+        if payment_provider == "paypal":
+            return await self._create_paypal_payment(
+                amount, currency, contract_type, description
+            )
+        return await self._create_mercadopago_payment(
+            amount, currency, contract_type, description
+        )
+
+    async def _create_mercadopago_payment(
         self, amount: float, currency: str, contract_type: str, description: str = ""
     ) -> PaymentStatus:
         """Create a Mercado Pago checkout preference (payment link)"""
@@ -217,4 +240,105 @@ Fecha: _______________          Fecha: _______________
                 status="error",
                 checkout_url=None,
                 message=f"Error de conexión: {str(e)}",
+            )
+
+    async def _get_paypal_access_token(self) -> str:
+        """Get OAuth2 access token from PayPal"""
+        credentials = base64.b64encode(
+            f"{self.paypal_client_id}:{self.paypal_secret}".encode()
+        ).decode()
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.paypal_base_url}/v1/oauth2/token",
+                headers={
+                    "Authorization": f"Basic {credentials}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                data="grant_type=client_credentials",
+                timeout=15.0,
+            )
+            if response.status_code == 200:
+                return response.json()["access_token"]
+            raise Exception(
+                f"PayPal auth error {response.status_code}: {response.text[:200]}"
+            )
+
+    async def _create_paypal_payment(
+        self, amount: float, currency: str, contract_type: str, description: str = ""
+    ) -> PaymentStatus:
+        """Create a PayPal checkout order"""
+        if not self.paypal_client_id or not self.paypal_secret:
+            return PaymentStatus(
+                payment_id=f"demo_{uuid.uuid4().hex[:8]}",
+                status="demo",
+                checkout_url=None,
+                message="PAYPAL_CLIENT_ID / PAYPAL_SECRET no configurados. Configure las variables de entorno.",
+            )
+
+        try:
+            access_token = await self._get_paypal_access_token()
+
+            order_payload = {
+                "intent": "CAPTURE",
+                "purchase_units": [
+                    {
+                        "reference_id": f"contract_{uuid.uuid4().hex[:12]}",
+                        "description": description
+                        or f"Contrato profesional tipo {contract_type}",
+                        "amount": {
+                            "currency_code": currency.upper(),
+                            "value": f"{amount:.2f}",
+                        },
+                    }
+                ],
+                "application_context": {
+                    "brand_name": "Contract Generator AI",
+                    "landing_page": "LOGIN",
+                    "user_action": "PAY_NOW",
+                    "return_url": "https://contract-generator.silhouette.cloud/payment/success",
+                    "cancel_url": "https://contract-generator.silhouette.cloud/payment/failure",
+                },
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.paypal_base_url}/v2/checkout/orders",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json",
+                    },
+                    json=order_payload,
+                    timeout=15.0,
+                )
+
+                if response.status_code in (200, 201):
+                    data = response.json()
+                    approve_link = next(
+                        (
+                            link["href"]
+                            for link in data.get("links", [])
+                            if link["rel"] == "approve"
+                        ),
+                        None,
+                    )
+                    return PaymentStatus(
+                        payment_id=data.get("id", "unknown"),
+                        status="created",
+                        checkout_url=approve_link,
+                        message="Redirigiendo al checkout de PayPal...",
+                    )
+                else:
+                    return PaymentStatus(
+                        payment_id="error",
+                        status="error",
+                        checkout_url=None,
+                        message=f"Error de PayPal: {response.status_code} - {response.text[:200]}",
+                    )
+        except Exception as e:
+            return PaymentStatus(
+                payment_id="error",
+                status="error",
+                checkout_url=None,
+                message=f"Error de conexión PayPal: {str(e)}",
             )
