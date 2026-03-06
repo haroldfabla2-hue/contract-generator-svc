@@ -16,7 +16,7 @@ services:
   landing:
     image: nginx:alpine
     ports:
-      - "8080:80"
+      - "8002:80"
     volumes:
       - ./landing:/usr/share/nginx/html:ro
     restart: unless-stopped
