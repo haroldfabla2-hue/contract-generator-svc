@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - GLM_API_KEY=${GLM_API_KEY}
+      - MERCADO_PAGO_KEY=${MERCADO_PAGO_KEY}
+    volumes:
+      - ./app:/app/app
+    restart: unless-stopped
